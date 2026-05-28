@@ -1,45 +1,41 @@
+// models/user.js
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 
 const userSchema = new mongoose.Schema({
     username: {
         type: String,
-        required: true ,
+        required: true,
         unique: true,
     },
     email: {
         type: String,
-        required: true ,
+        required: true,
         unique: true,
     },
     password: {
         type: String,
-        required: true ,
+        required: false, // 👈 Changed to false for Google OAuth users
     },
-
-
-
+    googleId: {         // 👈 Added to track Google Users
+        type: String,
+        unique: true,
+        sparse: true,   // Allows multiple users to have 'undefined' password/googleId without collisions
+    }
 },{timestamps: true})
 
 userSchema.pre("save", async function(next){
-     // "this" refers to the user being saved
-     if(!this.isModified("password")) return next();
-     // Only hash if password was changed (not on every update)
+     if(!this.isModified("password") || !this.password) return next(); // 👈 Added check for this.password
+     
     const salt = await bcrypt.genSalt(10)
-    // Salt = random string added to password before hashing
-    // 10 = number of rounds (higher = slower = more secure)
     this.password = await bcrypt.hash(this.password, salt)
-    // "password123" + salt → "$2b$10$XK2kPqXqJ..."
-    next() // Continue saving
+    next()
 })
 
 userSchema.methods.matchPassword = async function(enteredPassword) {
-    // bcrypt.compare takes plain password and hash
-    // It extracts salt from hash, applies to entered password, then compares
+    if(!this.password) return false; // If user signed up with Google and has no password
     return await bcrypt.compare(enteredPassword, this.password)
-    // Returns true if matches, false if not
 }
 
 const User = mongoose.model("User", userSchema);
-
-export default User
+export default User;
