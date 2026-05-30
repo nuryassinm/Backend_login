@@ -21,7 +21,10 @@ const userSchema = new mongoose.Schema({
         type: String,
         unique: true,
         sparse: true,   // Allows multiple users to have 'undefined' password/googleId without collisions
-    }
+    },
+    resetPasswordToken: String,
+  resetPasswordExpires: Date
+    
 },{timestamps: true})
 
 userSchema.pre("save", async function(next){
