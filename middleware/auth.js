@@ -5,16 +5,17 @@ export const protect = async (req, res, next) => {
     let token;
     
     console.log("=== PROTECT MIDDLEWARE ===");
-    console.log("Authorization header:", req.headers.authorization);
+    // Read token straight from cookies instead of incoming authorization headers
+    console.log("Cookies present on request:", req.cookies ? "Yes" : "No");
 
-    if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
+    if (req.cookies && req.cookies.token) {
         try {
-            token = req.headers.authorization.split(" ")[1];
-            console.log("Token extracted:", token.substring(0, 50) + "...");
+            token = req.cookies.token;
+            console.log("Token extracted from Cookie successfully:", token.substring(0, 30) + "...");
             
             console.log("JWT_SECRET exists?", !!process.env.JWT_SECRET);
-            console.log("JWT_SECRET length:", process.env.JWT_SECRET?.length);
             
+            // Verify the cookie token
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
             console.log("Token decoded successfully:", decoded);
             
@@ -26,25 +27,25 @@ export const protect = async (req, res, next) => {
                 return res.status(401).json({ message: "User not found" });
             }
             
-            console.log("✅ Authentication successful!");
+            console.log("✅ Cookie Authentication successful!");
             return next();
             
         } catch (err) {
-            console.error("❌ Token verification failed:");
+            console.error("❌ Cookie Token verification failed:");
             console.error("Error name:", err.name);
             console.error("Error message:", err.message);
             
             if (err.name === 'JsonWebTokenError') {
-                return res.status(401).json({ message: "Invalid token" });
+                return res.status(401).json({ message: "Invalid token structure" });
             }
             if (err.name === 'TokenExpiredError') {
-                return res.status(401).json({ message: "Token expired" });
+                return res.status(401).json({ message: "Session token expired" });
             }
             
             return res.status(401).json({ message: "Not Authorized, token failed" });
         }
     }
     
-    console.log("No token provided");
-    return res.status(401).json({ message: "Not authorized, no token" });
+    console.log("No authorization cookie found");
+    return res.status(401).json({ message: "Not authorized, please log in" });
 };

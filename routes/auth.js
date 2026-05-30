@@ -4,9 +4,19 @@ import User from '../models/user.js';
 import jwt from "jsonwebtoken";
 import { protect } from '../middleware/auth.js';
 import passport from 'passport';
+import rateLimit from 'express-rate-limit';
 
 const router = express.Router();
 
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes window
+    max: 5, // Limit each IP to 5 requests per window
+    message: { 
+        message: "Too many attempts from this device. Please try again after 15 minutes." 
+    },
+    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+});
 // Strict password rule: 8+ chars, 1 uppercase, 1 number, 1 special character
 const passwordRegex = /^(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,}$/;
 
@@ -17,7 +27,7 @@ const generateToken = (id) => {
 
 
 // Register Route with Explicit Checks
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter , async (req, res) => {
     const { username, email, password } = req.body;
     
     try {
@@ -61,7 +71,7 @@ router.post('/register', async (req, res) => {
 });
 
 // Login 
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
     const { email, password } = req.body;
     
     try {
@@ -105,7 +115,11 @@ router.post('/forgot-password', async (req, res) => {
         }
 
         // Create random 20-character hex string token
-        const token = crypto.randomBytes(20).toString('hex');
+        const rawToken = crypto.randomBytes(20).toString('hex');
+        const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+        user.resetPasswordToken = hashedToken; // Save this safely
+        await user.save();
 
         // Store token and expiration (15 minutes from now) inside the document
         user.resetPasswordToken = token;
@@ -113,7 +127,7 @@ router.post('/forgot-password', async (req, res) => {
         await user.save();
 
         // Create reset link pointing to your React frontend URL layout
-        const resetLink = `http://localhost:5173/reset-password/${token}`;
+        const resetLink = `http://localhost:5173/reset-password/${rawToken}`;
 
         // Print to backend log terminal window for local testing
         console.log("\n========== PASSWORD RESET LINK ==========");
@@ -175,14 +189,27 @@ router.get('/google', passport.authenticate('google', { scope: ['profile', 'emai
 // @route   GET /api/users/google/callback
 router.get(
     '/google/callback',
-    passport.authenticate('google', { failureRedirect: '/login', session: false }),
+    passport.authenticate('google', { failureRedirect: 'http://localhost:5173/login', session: false }),
     (req, res) => {
-        const token = generateToken(req.user._id);
-        const frontendUrl = `http://localhost:5173/oauth-success?token=${token}`;
-        res.redirect(frontendUrl);
+        try {
+            const token = generateToken(req.user._id);
+            
+            // Send secure cookie token
+            res.cookie('token', token, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'lax',
+                maxAge: 30 * 24 * 60 * 60 * 1000
+            });
+            
+            // Redirect right into your custom React Success animation interface
+            res.redirect('http://localhost:5173/oauth-success');
+        } catch (error) {
+            console.error("Error during cookie generation redirect:", error);
+            res.redirect('http://localhost:5173/login');
+        }
     }
 );
-
 // Get current user - PROTECTED ROUTE
 router.get("/me", protect, async (req, res) => {
     res.status(200).json(req.user);
